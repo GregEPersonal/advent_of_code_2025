@@ -11,13 +11,16 @@ lines = read_input_lines("day_02/input.txt")
 bad_line_array = []
 
 lines.each do |line|
+  # Get the ranges
   ranges = line.split(",")
+  # For each range, get the low and high values and then evaluate
   ranges.each do |range|
     low, high = range.split("-").map(&:to_i)
+    # For each number in the range, convert to a string and get the length.
     for i in low..high
       string_i = i.to_s
       str_length = string_i.length
-      # SEries of hardcoded given the lines dont get that long.
+      # For each possible repeat length, check if the number is a repeat. We build it up to compare intead of dividing up the string.
       for repeat_length in 1..str_length / 2
         if str_length % repeat_length == 0
           repeats = str_length / repeat_length
