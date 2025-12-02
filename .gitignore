@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# Vim / Emacs
+*~
+*.swp
+
+# VSCode
+.vscode/
+
+# Ruby
+.bundle/
+vendor/bundle/
+log/
+tmp/
+*.log
+
+# Node
+node_modules/
+
+# Environment
+.env
+.env.*
