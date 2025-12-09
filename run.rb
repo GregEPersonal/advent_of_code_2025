@@ -1,5 +1,6 @@
 day = ARGV[0]
 part = ARGV[1]
+@test_mode = ARGV[2]
 
 if day.nil? || part.nil?
   puts "Usage: ruby run.rb <day> <part>"
