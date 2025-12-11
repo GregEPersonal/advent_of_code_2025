@@ -268,7 +268,7 @@ end
 #     end
 #   end
 
-#   return button_presses, updated_button_arrays, updated_joltage_array, validate_joltage_array(updated_joltage_array)
+#   return button_  presses, updated_button_arrays, updated_joltage_array, validate_joltage_array(updated_joltage_array)
 # end
 
 def solve_line(joltage_array, button_arrays)
