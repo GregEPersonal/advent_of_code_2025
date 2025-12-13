@@ -6,6 +6,10 @@ require "pry"
 # Read input lines
 lines = read_input_lines("day_10/input.txt")
 
+def format_array_of_arrays(arr)
+  arr.map { |inner| inner.join(",") }.join("|")
+end
+
 def find_button_by_light_index(light_index, button_arrays)
   button_arrays.each do |button|
     if button.include?(light_index)
@@ -83,6 +87,29 @@ def get_max_presses(button, joltage_array)
   return presses
 end
 
+# The output is purely an array of arrays, where each inner array represents a combination of button presses to get the target index to 0. No validating other than that.
+def get_potential_press_combinations(candidate_buttons, target_index, joltage_array)
+  target_joltage = joltage_array[target_index]
+  num_buttons = candidate_buttons.length
+
+  # Helper lambda to generate all combinations recursively
+  generate_combinations = lambda do |remaining_sum, num_remaining, current_combination = []|
+    if num_remaining == 0
+      return [current_combination] if remaining_sum == 0
+      return []
+    end
+
+    combinations = []
+    (0..remaining_sum).each do |presses|
+      new_combination = current_combination + [presses]
+      combinations += generate_combinations.call(remaining_sum - presses, num_remaining - 1, new_combination)
+    end
+    combinations
+  end
+
+  generate_combinations.call(target_joltage, num_buttons)
+end
+
 # So this is going to find a good starting place, try the new button x times, and then do it again
 # So we make a loop, and launch a ton of attempts.
 # But how do we know when to stop...?
@@ -139,35 +166,71 @@ end
 # We recurisvely solve each index, sorted by the least number of buttons that affect it.
 # So, for each recursive effort, we find the index with least number of buttons that affect it, and solve there.
 def solve_smallest_index_first(sorted_button_array, joltage_array, presses_so_far = 0, best_so_far = nil, memo = {}, depth = 0)
-  # puts "Current status. Joltage: #{joltage_array.join(",")} Buttons remaining: #{sorted_button_array.length}. Presses so far: #{presses_so_far}. Depth: #{depth}"
+  # puts "Current status. Joltage: #{joltage_array.join(",")} Buttons remaining: #{sorted_button_array.length}. Depth: #{depth} "
   # BASE CASES #
   return presses_so_far if check_joltage_array(joltage_array)
   return nil if sorted_button_array.empty?
 
   # Memoization key based on current state (button order normalized).
-  memo_key_buttons = sorted_button_array.map { |b| b.sort.join(",") }.sort.join(";")
-  memo_key = "#{joltage_array.join(",")}|#{memo_key_buttons}"
+  # memo_key_buttons = sorted_button_array.map { |b| b.sort.join(",") }.sort.join(";")
+  # So memo is slightly complicated. It's based on remaining joltage,
+  # and will then match buttons remaining to an outcome
+  memo_key = joltage_array.join(",")
+  button_key = format_array_of_arrays(sorted_button_array)
   if memo.key?(memo_key)
-    cached = memo[memo_key]
-    return presses_so_far + cached if cached
+    joltage_memo = memo[memo_key]
+    if joltage_memo && joltage_memo.key?(button_key)
+      cached = joltage_memo[button_key]
+      return presses_so_far + cached if cached
+    end
+
+    # And if OUR answer is a subset of a longer, nil answer, then we can return nil.
+    joltage_memo.keys.each do |key|
+      joltage_buttons_array = key.split("|")
+
+      # For nil responses, we care if our available buttons are a subset of the key.
+      if joltage_memo[key] == nil
+        if sorted_button_array.all? { |button| joltage_buttons_array.include?(button) }
+          return nil
+        end
+      else
+        # For non-nil responses, we care if the key is a subset of our available buttons.
+        if joltage_buttons_array.all? { |button| sorted_button_array.include?(button) }
+          # So, we should only check buttons that are NOT in the joltage_buttons_array?
+          # NEXT UP - DO THIS.
+        end
+      end
+    end
+
+    #Okay, no exact matches. Let's now test if there is a match of a subset of buttons
+    # If so, for each result, ordered by longest to shortest, search and see if it is a subset.
+    # If the key is a subset of theexisting buttons, then we need only involve the given buttons.
+
   end
 
   number_of_joltages = joltage_array.length
 
   # Count how many buttons affect each joltage index.
   button_count_per_light = Array.new(number_of_joltages, 0)
+  button_size_per_light = Array.new(number_of_joltages, 0)
   sorted_button_array.each do |button|
     button.each { |light| button_count_per_light[light] += 1 }
+    button_size = button.length
+    button.each do |light_index|
+      if button_size_per_light[light_index] < button_size
+        button_size_per_light[light_index] = button_size
+      end
+    end
   end
 
-  # Choose the unsolved index influenced by the fewest buttons (tie-breaker: lowest index).
+  # Choose the unsolved index influenced by the fewest buttons (tie-breaker: largest button).
   target_index = nil
   target_count = nil
   joltage_array.each_with_index do |joltage, idx|
     next if joltage <= 0
     count = button_count_per_light[idx]
     next if count == 0
-    if target_count.nil? || count < target_count || (count == target_count && idx < target_index)
+    if target_count.nil? || count < target_count || (count == target_count && button_size_per_light[idx] > button_size_per_light[target_index])
       target_index = idx
       target_count = count
     end
@@ -181,50 +244,103 @@ def solve_smallest_index_first(sorted_button_array, joltage_array, presses_so_fa
 
   best_result = nil
 
-  candidate_buttons.each do |button|
-    max_presses = get_max_presses(button, joltage_array)
-    # puts " - (depth: #{depth}) Max presses for button #{button.join(",")}: #{max_presses}"
-    if depth == 0
-      # binding.pry
+  # if depth == 0
+  #   binding.pry
+  # end
+
+  # Okay, new plan. Instead of picking a specific button, and trying all of the individual presses,
+  # We instead pick every combination of button presses to get this index to 0, and do all of them,
+  # and then remove ALL of those buttons (since they can't be pressed anymore, as it would go over the joltage)
+
+  # Get an array of every possible combination of button presses in the form of an array of arrays, where the inner arrays represent which candidate_button indices we'd press each time.
+  potential_press_combinations = get_potential_press_combinations(candidate_buttons, target_index, joltage_array)
+  potential_press_combinations.each do |press_combination|
+    new_total_presses = presses_so_far
+    new_joltage_array = joltage_array.dup
+    press_combination.each_with_index do |press_count, index|
+      new_joltage_array = update_joltage_array(new_joltage_array, candidate_buttons[index], press_count)
+      new_total_presses += press_count
     end
-    # We may have already solved an index this button relies on.
-    # IF so, skip this button.
-    if max_presses == 0
+
+    #Validate it's still good
+    if !validate_joltage_array(new_joltage_array)
       next
     end
 
-    # Try from the max viable presses down to 1 (pressing 0 does nothing).
-    max_presses.downto(1) do |press_count|
-      new_joltage_array = update_joltage_array(joltage_array.dup, button, press_count)
-      next unless validate_joltage_array(new_joltage_array)
+    # Okay, it's good, kill all of these buttons.
+    new_button_array = (sorted_button_array - candidate_buttons).dup
 
-      new_total_presses = presses_so_far + press_count
-      # Prune if we already exceed the best known solution.
-      if best_so_far && new_total_presses >= best_so_far
-        next
-      end
-
-      new_button_array = sorted_button_array.dup
-      new_button_array.delete(button)
-
-      recursive_result = solve_smallest_index_first(
-        new_button_array,
-        new_joltage_array,
-        new_total_presses,
-        best_so_far || best_result,
-        memo,
-        depth + 1
-      )
-
-      next if recursive_result.nil?
-
-      best_result = recursive_result if best_result.nil? || recursive_result < best_result
-      best_so_far = best_result if best_result && (best_so_far.nil? || best_result < best_so_far)
+    # Check if we're over the already established limit.
+    if best_so_far && new_total_presses >= best_so_far
+      next
     end
+
+    recursive_result = solve_smallest_index_first(
+      new_button_array,
+      new_joltage_array,
+      new_total_presses,
+      best_so_far || best_result,
+      memo,
+      depth + 1
+    )
+
+    next if recursive_result.nil?
+
+    best_result = recursive_result if best_result.nil? || recursive_result < best_result
+    best_so_far = best_result if best_result && (best_so_far.nil? || best_result < best_so_far)
   end
 
+  # # Old way - try every combination of button presses for a given button, and then remove that button and try the rest.
+  # candidate_buttons.each do |button|
+  #   max_presses = get_max_presses(button, joltage_array)
+  #   # puts " - (depth: #{depth}) Max presses for button #{button.join(",")}: #{max_presses}"
+  #   if depth == 0
+  #     # binding.pry
+  #   end
+  #   # We may have already solved an index this button relies on.
+  #   # IF so, skip this button.
+  #   if max_presses == 0
+  #     next
+  #   end
+
+  #   # Try from the max viable presses down to 1 (pressing 0 does nothing).
+  #   max_presses.downto(1) do |press_count|
+  #     new_joltage_array = update_joltage_array(joltage_array.dup, button, press_count)
+  #     next unless validate_joltage_array(new_joltage_array)
+
+  #     new_total_presses = presses_so_far + press_count
+  #     # Prune if we already exceed the best known solution.
+  #     if best_so_far && new_total_presses >= best_so_far
+  #       next
+  #     end
+
+  #     new_button_array = sorted_button_array.dup
+  #     new_button_array.delete(button)
+
+  #     recursive_result = solve_smallest_index_first(
+  #       new_button_array,
+  #       new_joltage_array,
+  #       new_total_presses,
+  #       best_so_far || best_result,
+  #       memo,
+  #       depth + 1
+  #     )
+
+  #     next if recursive_result.nil?
+
+  #     best_result = recursive_result if best_result.nil? || recursive_result < best_result
+  #     best_so_far = best_result if best_result && (best_so_far.nil? || best_result < best_so_far)
+  #   end
+  # end
+
   # Cache best remaining presses from this state (relative to current presses_so_far).
-  memo[memo_key] = best_result ? (best_result - presses_so_far) : nil
+  if memo[memo_key]
+    "Adding to memo: #{memo_key}"
+    memo[memo_key][button_key] = best_result ? (best_result - presses_so_far) : nil
+  else
+    "Adding to memo: #{memo_key}"
+    memo[memo_key] = { button_key => best_result ? (best_result - presses_so_far) : nil }
+  end
 
   best_result
 end
@@ -286,7 +402,22 @@ end
 # Solution logic
 total_button_count = 0
 
+# lines_to_skip = [13, 86, 95, 102, 112, 121, 167, 195]
+lines_to_skip = []
+starting_index = 121
+
 lines.each_with_index do |line, index|
+  start_time = Time.now
+
+  if starting_index && index < starting_index
+    next
+  end
+
+  if lines_to_skip.include?(index)
+    puts "Skipping line #{index}"
+    next
+  end
+
   #Parse the line.
   #The first segment end where "]" is found.
   # The second segment goes from there until "{" is found.
@@ -319,7 +450,8 @@ lines.each_with_index do |line, index|
 
   # Solve this one.
   new_button_count = solve_line(third_segment_array, second_segment_arrays)
-  puts "SOLVED! New button count: #{new_button_count} for line #{index}"
+  elapsed_time = Time.now - start_time
+  puts "SOLVED! New button count: #{new_button_count} for line #{index} (Time: #{elapsed_time.round(2)} seconds)"
   total_button_count += new_button_count
 end
 
